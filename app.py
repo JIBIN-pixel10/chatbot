@@ -4,161 +4,141 @@ from google.genai import errors
 from PyPDF2 import PdfReader
 from gtts import gTTS
 import base64
-import re
+import os
 
-# --- CONFIGURATION ---
-GEMINI_API_KEY = "AIzaSyBWebsYEGZ7z2gsmHeijHOnM-ZlXdWBiCE"
-client = genai.Client(api_key=GEMINI_API_KEY)
+# --- 1. CONFIGURATION & IDENTITY ---
+# Project Metadata for Tech Fest
+AUTHOR = "Pratyasha Bharti"
+DEPT = "Civil Engineering"
+SEM = "5th Sem"
 PRIMARY_MODEL = "gemini-2.5-flash-lite"
 BACKUP_MODEL = "gemini-1.5-flash"
 
-st.set_page_config(page_title="Pro Study AI", layout="wide", initial_sidebar_state="expanded")
+# Replace with your actual Gemini API Key
+GEMINI_API_KEY = "AIzaSyBWebsYEGZ7z2gsmHeijHOnM-ZlXdWBiCE"
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- UI STYLING ---
-st.markdown("""
+st.set_page_config(page_title="AI Study Buddy", layout="wide")
+
+# --- 2. CUSTOM CSS & STYLING ---
+st.markdown(f"""
     <style>
-    .stApp { background-color: #0E1117; color: #E0E0E0; }
-    .stButton>button { background: linear-gradient(45deg, #4CAF50, #2E7D32); color: white; border: none; font-weight: bold; }
-    .quiz-card { background-color: #1E1E1E; padding: 20px; border-radius: 15px; border-left: 5px solid #4CAF50; margin-bottom: 10px; }
+    .main {{ background-color: #0f1116; color: #ffffff; }}
+    .stTabs [data-baseweb="tab-list"] {{ gap: 24px; }}
+    .stTabs [data-baseweb="tab"] {{ height: 50px; white-space: pre-wrap; background-color: #1e2129; border-radius: 5px; color: white; }}
+    .quiz-card {{ background-color: #262730; padding: 20px; border-radius: 10px; border-left: 5px solid #4CAF50; margin-bottom: 10px; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- HELPER FUNCTIONS ---
+# --- 3. CORE LOGIC FUNCTIONS ---
 def generate_response(prompt):
     try:
         response = client.models.generate_content(model=PRIMARY_MODEL, contents=prompt)
         return response.text
     except errors.ServerError:
+        # Failover to 1.5 Flash if 2.5 is at high demand
         response = client.models.generate_content(model=BACKUP_MODEL, contents=prompt)
         return response.text
 
 def play_audio(text):
     try:
-        tts = gTTS(text=text[:150], lang='en')
-        tts.save("voice.mp3")
-        with open("voice.mp3", "rb") as f:
-            b64 = base64.b64encode(f.read()).decode()
-            st.markdown(f'<audio src="data:audio/mp3;base64,{b64}" controls autoplay style="display:none;"></audio>', unsafe_allow_html=True)
-    except: pass
+        # Filter out markdown/special chars for cleaner audio
+        clean_text = text.replace("*", "").replace("#", "")[:250]
+        tts = gTTS(text=clean_text, lang='en')
+        tts.save("response.mp3")
+        with open("response.mp3", "rb") as f:
+            data = f.read()
+            b64 = base64.b64encode(data).decode()
+            md = f'<audio src="data:audio/mp3;base64,{b64}" controls autoplay="true" style="display:none;"></audio>'
+            st.markdown(md, unsafe_allow_html=True)
+    except Exception: pass
 
-# --- INITIALIZE SESSION STATE ---
-if "quiz_data" not in st.session_state: st.session_state.quiz_data = None
+# --- 4. SESSION STATE INITIALIZATION ---
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_text" not in st.session_state: st.session_state.pdf_text = ""
+if "quiz_data" not in st.session_state: st.session_state.quiz_data = []
+if "quiz_answers" not in st.session_state: st.session_state.quiz_answers = []
 if "score" not in st.session_state: st.session_state.score = 0
 
-# --- SIDEBAR ---
+# --- 5. SIDEBAR: PROGRESS & UPLOAD ---
 with st.sidebar:
-    st.title("🛡️ Pro Study Control")
-    files = st.file_uploader("Upload Engineering Notes (PDF)", type="pdf")
-    if st.button("🚀 Process Material"):
-        if files:
-            reader = PdfReader(files)
-            st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages])
-            st.success("Analysis Complete!")
+    st.title("🛡️ Student Hub")
+    st.write(f"**User:** {AUTHOR}")
+    st.write(f"**Dept:** {DEPT} ({SEM})")
     
     st.divider()
-    st.write(f"### Current Score: {st.session_state.score}/10")
-    st.progress(st.session_state.score * 10)
+    
+    uploaded_file = st.file_uploader("Upload Lesson (PDF)", type="pdf")
+    if st.button("Initialize Material"):
+        if uploaded_file:
+            reader = PdfReader(uploaded_file)
+            st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages])
+            st.success("Lesson Loaded Successfully!")
+        else: st.error("Upload a file first.")
 
-# --- MAIN UI ---
-tab1, tab2, tab3 = st.tabs(["📖 Smart Summary", "✍️ 10-Question Quiz", "💡 Study Tips"])
+# --- 6. MAIN APP INTERFACE ---
+st.title("🎓 AI Study Buddy")
+tab_chat, tab_sum, tab_quiz, tab_tips = st.tabs(["💬 Chatbot", "📖 Deep Summary", "📝 Exam Mode", "💡 Study Tips"])
 
-# TAB 1: EXTENDED SUMMARY
-with tab1:
-    st.header("Deep Learning Summary")
-    if st.button("Generate Detailed Technical Summary"):
+# TAB 1: CONVERSATIONAL CHATBOT
+with tab_chat:
+    st.subheader("Interactive Learning Assistant")
+    chat_box = st.container(height=350)
+    
+    with chat_box:
+        for role, text in st.session_state.chat_history:
+            with st.chat_message(role): st.write(text)
+
+    if query := st.chat_input("Ask a doubt from the lesson..."):
+        st.session_state.chat_history.append(("user", query))
+        with chat_box: st.chat_message("user").write(query)
+        
+        with chat_box:
+            with st.chat_message("assistant"):
+                context = f"Context: {st.session_state.pdf_text[:4000]}\n\nUser Question: {query}"
+                ans = generate_response(context)
+                st.write(ans)
+                st.session_state.chat_history.append(("assistant", ans))
+                play_audio(ans)
+
+# TAB 2: DEEP SUMMARY
+with tab_sum:
+    st.subheader("Technical Summarization Engine")
+    if st.button("Generate Extended Summary"):
         if st.session_state.pdf_text:
-            with st.spinner("Analyzing deep structures..."):
-                prompt = f"""Provide a comprehensive, long-form technical summary of the following text. 
-                Include: 1. Core Architecture/Concepts 2. Key Mathematical or Logical formulas 3. Practical Applications.
-                Text: {st.session_state.pdf_text[:8000]}"""
-                summary = generate_response(prompt)
-                st.markdown(summary)
-                play_audio("Summary generated. Review the key technical points below.")
-        else: st.warning("Please upload a PDF first.")
+            prompt = f"Provide a long technical summary including key formulas and concepts for: {st.session_state.pdf_text[:8000]}"
+            summary = generate_response(prompt)
+            st.markdown(summary)
+            play_audio("Detailed summary ready.")
+        else: st.warning("Please upload a PDF.")
 
-import streamlit as st
-import re
-
-# --- TAB 2: EXAM MODE (HIDDEN ANSWERS) ---
-with tab2:
-    st.header("📝 Engineering Mock Exam")
-    st.write("Test your knowledge without seeing the answers upfront.")
-
-    if st.button("Generate 10 Hidden MCQs"):
+# TAB 3: 10-QUESTION QUIZ (HIDDEN ANSWERS)
+with tab_quiz:
+    st.subheader("10-Question Mock Exam")
+    if st.button("Generate Exam Paper"):
         if st.session_state.pdf_text:
-            with st.spinner("Preparing Exam Paper..."):
-                # We tell the AI to use a very specific delimiter (###)
-                prompt = f"""Generate 10 MCQs from this text. 
-                Format each question EXACTLY like this:
-                Q: [Question]
-                A) [Opt] B) [Opt] C) [Opt] D) [Opt]
-                CORRECT: [Letter]
-                ###
-                Text: {st.session_state.pdf_text[:5000]}"""
-                
-                raw_response = generate_response(prompt)
-                
-                # Logic to split by our delimiter ###
-                raw_questions = raw_response.split("###")
-                processed_questions = []
-                correct_answers = []
+            prompt = f"Create 10 MCQs from the text. Format: Q: [Question] | A) [Opt] B) [Opt] C) [Opt] D) [Opt] | CORRECT: [Letter]. Split with '###'. Context: {st.session_state.pdf_text[:5000]}"
+            raw = generate_response(prompt)
+            items = raw.split("###")
+            st.session_state.quiz_data = [i.split("CORRECT:")[0].strip() for i in items if "CORRECT:" in i]
+            st.session_state.quiz_answers = [i.split("CORRECT:")[1].strip()[0] for i in items if "CORRECT:" in i]
+            play_audio("Exam generated. Good luck.")
 
-                for q in raw_questions:
-                    if "CORRECT:" in q:
-                        # Extract the correct letter and remove it from the display text
-                        parts = q.split("CORRECT:")
-                        display_text = parts[0].strip()
-                        answer_letter = parts[1].strip()[0] # Takes just 'A', 'B', etc.
-                        processed_questions.append(display_text)
-                        correct_answers.append(answer_letter)
-                
-                st.session_state.quiz_list = processed_questions
-                st.session_state.ans_list = correct_answers
-                st.session_state.user_choices = [None] * 10
-                play_audio("Exam is ready. No cheating!")
-        else:
-            st.warning("Upload a PDF first!")
-
-    # DISPLAY THE QUIZ
-    if "quiz_list" in st.session_state:
-        user_input_answers = []
-        for i, q_text in enumerate(st.session_state.quiz_list[:10]):
-            st.markdown(f"<div class='quiz-card'>{q_text}</div>", unsafe_allow_html=True)
-            choice = st.radio(f"Select for Q{i+1}:", ["A", "B", "C", "D"], key=f"q{i}", index=None)
-            user_input_answers.append(choice)
-
-        if st.button("Submit & Grade Exam"):
-            score = 0
-            results = []
-            for i in range(len(st.session_state.ans_list)):
-                if user_input_answers[i] == st.session_state.ans_list[i]:
-                    score += 1
-                    results.append(f"Q{i+1}: ✅ Correct")
-                else:
-                    results.append(f"Q{i+1}: ❌ Wrong (Correct: {st.session_state.ans_list[i]})")
-            
-            st.session_state.score = score
-            st.divider()
-            st.subheader(f"Your Final Grade: {score}/10")
-            
-            # Show progress bar based on performance
+    if st.session_state.quiz_data:
+        user_choices = []
+        for i, q in enumerate(st.session_state.quiz_data[:10]):
+            st.markdown(f"<div class='quiz-card'>{q}</div>", unsafe_allow_html=True)
+            user_choices.append(st.radio(f"Select Answer Q{i+1}:", ["A", "B", "C", "D"], key=f"ans_{i}", index=None))
+        
+        if st.button("Submit & Grade"):
+            score = sum(1 for i in range(len(st.session_state.quiz_answers)) if user_choices[i] == st.session_state.quiz_answers[i])
+            st.success(f"Exam Complete! Final Score: {score}/10")
             st.progress(score / 10)
-            
-            for r in results:
-                st.write(r)
-            
-            if score >= 8:
-                st.balloons()
-                st.success("Exemplary Performance!")
-            elif score >= 5:
-                st.info("Good effort, keep reviewing.")
-            else:
-                st.error("Needs Improvement. Try re-reading the summary.")
-# TAB 3: STUDY TIPS
-with tab3:
-    st.header("BTech Success Hacks")
-    tips_prompt = "Give 5 high-yield study tips specifically for engineering students dealing with heavy technical subjects."
-    if st.button("Get New Tips"):
-        tips = generate_response(tips_prompt)
+            if score >= 8: st.balloons()
+
+# TAB 4: STUDY TIPS
+with tab_tips:
+    st.subheader("BTech Success Tips")
+    if st.button("Get Productivity Hacks"):
+        tips = generate_response("Give 5 high-yield study tips for engineering students.")
         st.info(tips)
