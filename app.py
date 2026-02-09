@@ -15,7 +15,7 @@ PRIMARY_MODEL = "gemini-2.5-flash-lite"
 BACKUP_MODEL = "gemini-1.5-flash"
 
 # Replace with your actual Gemini API Key
-GEMINI_API_KEY = "AIzaSyBWebsYEGZ7z2gsmHeijHOnM-ZlXdWBiCE"
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 st.set_page_config(page_title="AI Study Buddy", layout="wide")
